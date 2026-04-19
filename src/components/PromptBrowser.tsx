@@ -31,35 +31,80 @@ const PromptBrowser = () => {
   const [selectedModel, setSelectedModel] = useState<string>(MODELS[0].id);
   const [running, setRunning] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, EvalResult>>({});
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
+  const cancelRef = useRef(false);
 
   const filtered =
     activeCategory === "all"
       ? samplePrompts
       : samplePrompts.filter((p) => p.category === activeCategory);
 
+  const evaluateOne = async (prompt: PromptItem): Promise<EvalResult | null> => {
+    const { data, error } = await supabase.functions.invoke("evaluate-prompt", {
+      body: {
+        prompt: prompt.prompt,
+        expectedBehavior: prompt.expectedBehavior,
+        category: prompt.category,
+        model: selectedModel,
+      },
+    });
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+    return data as EvalResult;
+  };
+
   const runEvaluation = async (prompt: PromptItem) => {
     setRunning(prompt.id);
     try {
-      const { data, error } = await supabase.functions.invoke("evaluate-prompt", {
-        body: {
-          prompt: prompt.prompt,
-          expectedBehavior: prompt.expectedBehavior,
-          category: prompt.category,
-          model: selectedModel,
-        },
-      });
-
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-
-      setResults((prev) => ({ ...prev, [prompt.id]: data as EvalResult }));
-      toast.success(`Scored ${data.evaluation.score}/100`);
+      const data = await evaluateOne(prompt);
+      if (data) {
+        setResults((prev) => ({ ...prev, [prompt.id]: data }));
+        toast.success(`Scored ${data.evaluation.score}/100`);
+      }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Evaluation failed";
-      toast.error(msg);
+      toast.error(e instanceof Error ? e.message : "Evaluation failed");
     } finally {
       setRunning(null);
     }
+  };
+
+  const runAll = async () => {
+    cancelRef.current = false;
+    setBatchRunning(true);
+    setBatchProgress({ done: 0, total: filtered.length });
+    let passed = 0;
+    let failed = 0;
+
+    for (let i = 0; i < filtered.length; i++) {
+      if (cancelRef.current) break;
+      const prompt = filtered[i];
+      setRunning(prompt.id);
+      try {
+        const data = await evaluateOne(prompt);
+        if (data) {
+          setResults((prev) => ({ ...prev, [prompt.id]: data }));
+          if (data.evaluation.passed) passed++;
+          else failed++;
+        }
+      } catch (e) {
+        failed++;
+        toast.error(`${prompt.id}: ${e instanceof Error ? e.message : "failed"}`);
+      }
+      setBatchProgress({ done: i + 1, total: filtered.length });
+    }
+
+    setRunning(null);
+    setBatchRunning(false);
+    if (cancelRef.current) {
+      toast.info(`Stopped — ${passed} passed, ${failed} failed`);
+    } else {
+      toast.success(`Done — ${passed} passed, ${failed} failed`);
+    }
+  };
+
+  const stopAll = () => {
+    cancelRef.current = true;
   };
 
   return (
