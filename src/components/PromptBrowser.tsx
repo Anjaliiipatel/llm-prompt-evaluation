@@ -160,6 +160,34 @@ const PromptBrowser = () => {
           ))}
         </div>
 
+        {/* Run All controls */}
+        <div className="mb-6 p-4 rounded-xl bg-card border border-border">
+          <div className="flex flex-wrap items-center gap-3">
+            {batchRunning ? (
+              <Button size="sm" variant="destructive" onClick={stopAll}>
+                <StopCircle className="h-4 w-4" />
+                Stop
+              </Button>
+            ) : (
+              <Button size="sm" onClick={runAll} disabled={filtered.length === 0}>
+                <PlayCircle className="h-4 w-4" />
+                Run All ({filtered.length})
+              </Button>
+            )}
+            <span className="text-xs text-muted-foreground font-mono">
+              {batchRunning || batchProgress.done > 0
+                ? `${batchProgress.done} / ${batchProgress.total}`
+                : "Evaluate every prompt in the current filter"}
+            </span>
+          </div>
+          {(batchRunning || batchProgress.done > 0) && (
+            <Progress
+              value={batchProgress.total ? (batchProgress.done / batchProgress.total) * 100 : 0}
+              className="mt-3 h-2"
+            />
+          )}
+        </div>
+
         {/* Prompt cards */}
         <div className="space-y-4">
           {filtered.map((prompt) => {
